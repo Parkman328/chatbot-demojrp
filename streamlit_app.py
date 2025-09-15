@@ -1,30 +1,42 @@
+# Standard library imports
 import json
+import os
 import time
+import tomllib
 from typing import Dict, List, Optional, Tuple
 
-import streamlit as st
+# Third-party imports
 import pandas as pd
+import requests
+import streamlit as st
+from PIL import Image
+
+# Snowflake related imports
 import snowflake.connector
 from snowflake.connector.errors import DatabaseError
 from snowflake.snowpark import Session
 from snowflake.snowpark.exceptions import SnowparkSQLException
 
+# Initialize session as None at the global scope
+session = None
+
 secrets = st.secrets["connections"]["snowflake"]
 
 # Inputs for connection details (can also use st.secrets)
-account=secrets["ACCOUNT"]
-user=secrets["USER"]
-authenticator='snowflake'
-token=secrets["PAT"]
-warehouse=secrets["WAREHOUSE"]
-database=secrets["DATABASE"]
-schema=secrets["SCHEMA"]
+account = secrets["ACCOUNT"]
+user = secrets["USER"]
+authenticator = 'snowflake'
+token = secrets["PAT"]
+warehouse = secrets["WAREHOUSE"]
+database = secrets["DATABASE"]
+schema = secrets["SCHEMA"]
 
 # List of available semantic model paths in the format: <DATABASE>.<SCHEMA>.<STAGE>/<FILE-NAME>
 # Each path points to a YAML file defining a semantic model
 
 AVAILABLE_SEMANTIC_MODELS_PATHS = [
-    "CORTEX_DEMOS.CONTOSO.ANALYST_STAGE/ContosoDemo.yaml"
+    "CORTEX_DEMOS.CONTOSO.ANALYST_STAGE/ContosoDemo.yaml",
+    "CORTEX_ANALYST_DEMO.REVENUE_TIMESERIES.RAW_DATA/revenue_timeseries.yaml"
 ]
 API_ENDPOINT = "/api/v2/cortex/analyst/message"
 FEEDBACK_API_ENDPOINT = "/api/v2/cortex/analyst/feedback"
@@ -32,6 +44,9 @@ API_TIMEOUT = 50000  # in milliseconds
 
 
 def main():
+    """
+    Main function to initialize and run the Streamlit application.
+    """
     # Initialize session state
     if "messages" not in st.session_state:
         reset_session_state()
@@ -39,45 +54,75 @@ def main():
     if len(st.session_state.messages) == 0:
         process_user_input("What questions can I ask?")
     display_conversation()
-    #handle_user_inputs()
-    #handle_error_notifications()
-    display_connectbutton()
+    handle_user_inputs()
+    handle_error_notifications()
+
 
 
 def reset_session_state():
-    """Reset important session state elements."""
+    """Reset important session state elements while preserving connection information."""
+    # Preserve Snowflake connection if it exists
+    snowflake_conn = st.session_state.get('CONN')
+    snowflake_session = st.session_state.get('session')
+    
+    # Reset conversation state
     st.session_state.messages = []  # List to store conversation messages
     st.session_state.active_suggestion = None  # Currently selected suggestion
+    
+    # Restore Snowflake connection if it existed
+    if snowflake_conn is not None:
+        st.session_state.CONN = snowflake_conn
+    if snowflake_session is not None:
+        st.session_state.session = snowflake_session
 
 
 def show_header_and_sidebar():
     """Display the header and sidebar of the app."""
-# Show title and description.
-    st.title("Snowflake Cortext Analyst")
-    st.write(
-        "A simple chat app using Cortext Analyst and the OpenAI API. "
+    # Page config
+    st.set_page_config(page_title="Snowflake Cortext Analyst", layout="wide")
+    with open("./config/config_readme.toml", "rb") as f:
+        readme = tomllib.load(f)
+    # Show title and description.
+    st.markdown(
+        "<span style='font-size:2em; font-weight:bold;'>Snowflake Cortext Analyst for Qlik Cloud</span>",
+        unsafe_allow_html=True
     )
+    with st.expander(
+        "Snowflake Cortext Analyst for Qlik Cloud Instructions", expanded=False
+        ):
+        st.markdown(
+            readme['app']['app_intro']
+        )
+        st.write("")
+        st.write("")
+    # Display logo at the top of the sidebar
+    logo_path = "./references/qlik_snowflake_cortext.png"
+    if os.path.exists(logo_path):
+        st.sidebar.image(Image.open(logo_path), use_container_width=True)
+    else:
+        st.sidebar.write(":warning: Logo not found.")
 
     # Sidebar with a reset button
     with st.sidebar:
-        st.selectbox(   
-            "Selected semantic model:",
-            AVAILABLE_SEMANTIC_MODELS_PATHS,
-            format_func=lambda s: s.split("/")[-1],
-            key="selected_semantic_model_path",
-            on_change=reset_session_state,
-        )
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"[Github Repository]({readme['links']['repo']})")
+        with col2:
+            st.markdown(f"[Article]({readme['links']['article']})")
         st.divider()
-        st.markdown("## Snowflake Connection Details")
-        st.text_input("Account", value=account, disabled=True)
-        st.text_input("User", value=user, disabled=True)
-        st.text_input("Personal Access Token", value=token, type="password", disabled=True)
-        st.text_input("Warehouse", value=warehouse, disabled=True)
-        st.text_input("Database", value=database, disabled=True)
-        st.text_input("Schema", value=schema, disabled=True)
-        
-    
-        connect_button = st.button("Connect to Snowflake")
+        st.sidebar.title("1. Configuration")
+        with st.sidebar.expander("Configurations", expanded=False):
+            st.markdown("## Snowflake Connection Details")
+            st.text_input("Account", value=account, disabled=True)
+            st.text_input("User", value=user, disabled=True)
+            st.text_input("Personal Access Token", value=token, type="password", disabled=True)
+            st.text_input("Warehouse", value=warehouse, disabled=True)
+            st.text_input("Database", value=database, disabled=True)
+            st.text_input("Schema", value=schema, disabled=True)
+            
+        st.sidebar.title("2. Connect to Snowflake")
+        with st.sidebar.expander("Connect", expanded=False):
+            connect_button = st.button("Connect to Snowflake")
         if connect_button:
             if not token:
                 st.error("Please provide a valid Personal Access Token.")
@@ -92,6 +137,7 @@ def show_header_and_sidebar():
                         database=database,
                         schema=schema
                     )
+                    st.session_state.CONN = conn
                     st.success(f"Connection successful to {account}!")
                     connection_parameters = {
                         "account": account,
@@ -102,7 +148,11 @@ def show_header_and_sidebar():
                         "database": database,
                         "schema": schema,
                     }
+                    # Initialize the global session variable
+                    global session
                     session = Session.builder.configs(connection_parameters).create()
+                    st.session_state.session = session  # Also store in session state for persistence
+                    
                     cur = conn.cursor()
                     cur.execute("SELECT CURRENT_VERSION(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()")
                     result = cur.fetchall()
@@ -110,20 +160,32 @@ def show_header_and_sidebar():
                     for row in result:
                         st.write(row)
                     cur.close()
-                    conn.close()
                 except DatabaseError as e:
                     st.error(f"Failed to connect: {e}")
                     _, btn_container, _ = st.columns([2, 6, 2])
-                    if btn_container.button("Clear Chat History", use_container_width=True):
-                        reset_session_state()
-
-def display_connectbutton():
-    st.write("Click the button on the left sidebar to connect to Snowflake.")
-    st.markdown("Make sure to enter your connection details correctly.")
+        st.sidebar.title("3. Semantic Model")
+        with st.sidebar.expander("Select Semantic Model", expanded=False):
+            st.markdown("Select the semantic model to use for the Analyst API.")
+            st.markdown("You can upload your own semantic model YAML files to the specified stage in Snowflake and add the path here.")
+            st.markdown("Make sure the semantic model is compatible with the Analyst API.")
+            st.selectbox(   
+            "Selected semantic model:",
+            AVAILABLE_SEMANTIC_MODELS_PATHS,
+            format_func=lambda s: s.split("/")[-1],
+            key="selected_semantic_model_path",
+            on_change=reset_session_state,
+        )
+        st.sidebar.title("4. Clean Up Session")
+        with st.sidebar.expander("Reset Session", expanded=False):
+            if st.button("Clear Chat History", use_container_width=True):
+                reset_session_state()       
+        st.divider()
 
 
 def handle_user_inputs():
-    """Handle user inputs from the chat interface."""
+    """
+    Handle user inputs from the chat interface and suggested questions.
+    """
     # Handle chat input
     user_input = st.chat_input("What is your question?")
     if user_input:
@@ -134,12 +196,11 @@ def handle_user_inputs():
         st.session_state.active_suggestion = None
         process_user_input(suggestion)
 
-
 def handle_error_notifications():
+    """Display error notifications using toast messages."""
     if st.session_state.get("fire_API_error_notify"):
-        st.toast("An API error has occured!", icon="🚨")
+        st.toast("An API error has occurred!", icon="🚨")
         st.session_state["fire_API_error_notify"] = False
-
 
 def process_user_input(prompt: str):
     """
@@ -163,23 +224,40 @@ def process_user_input(prompt: str):
     with st.chat_message("analyst"):
         with st.spinner("Waiting for Analyst's response..."):
             time.sleep(1)
-            response, error_msg = get_analyst_response(st.session_state.messages)
-            if error_msg is None:
+            try:
+                response, error_msg = get_analyst_response(st.session_state.messages)
+                
+                if error_msg is None and response and "message" in response and "content" in response["message"]:
+                    analyst_message = {
+                        "role": "analyst",
+                        "content": response["message"]["content"],
+                        "request_id": response.get("request_id", "unknown"),
+                    }
+                else:
+                    # Handle error or malformed response
+                    request_id = response.get("request_id", "unknown") if response else "unknown"
+                    error_text = error_msg or "Received an invalid response format from the Analyst API."
+                    
+                    analyst_message = {
+                        "role": "analyst",
+                        "content": [{"type": "text", "text": error_text}],
+                        "request_id": request_id,
+                    }
+                    st.session_state["fire_API_error_notify"] = True
+                    
+                st.session_state.messages.append(analyst_message)
+                st.rerun()
+            except Exception as e:
+                # Handle unexpected exceptions
+                error_text = f"An unexpected error occurred: {str(e)}"
                 analyst_message = {
                     "role": "analyst",
-                    "content": response["message"]["content"],
-                    "request_id": response["request_id"],
-                }
-            else:
-                analyst_message = {
-                    "role": "analyst",
-                    "content": [{"type": "text", "text": error_msg}],
-                    "request_id": response["request_id"],
+                    "content": [{"type": "text", "text": error_text}],
+                    "request_id": "error",
                 }
                 st.session_state["fire_API_error_notify"] = True
-            st.session_state.messages.append(analyst_message)
-            st.rerun()
-
+                st.session_state.messages.append(analyst_message)
+                st.rerun()
 
 def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
     """
@@ -189,49 +267,77 @@ def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
         messages (List[Dict]): The conversation history.
 
     Returns:
-        Optional[Dict]: The response from the Cortex Analyst API.
+        Tuple[Dict, Optional[str]]: The response from the Cortex Analyst API and any error message.
     """
+    HOST = account + ".snowflakecomputing.com"
+    print(f"Using semantic model: {st.session_state.selected_semantic_model_path}")
+    
     # Prepare the request body with the user's prompt
     request_body = {
         "messages": messages,
         "semantic_model_file": f"@{st.session_state.selected_semantic_model_path}",
     }
 
-    # Send a POST request to the Cortex Analyst API endpoint
-    # Adjusted to use positional arguments as per the API's requirement
-    resp = _snowflake.send_snow_api_request(
-        "POST",  # method
-        API_ENDPOINT,  # path
-        {},  # headers
-        {},  # params
-        request_body,  # body
-        None,  # request_guid
-        API_TIMEOUT,  # timeout in milliseconds
-    )
+    # Check if connection and token are available
+    if (
+        "CONN" not in st.session_state
+        or st.session_state.CONN is None
+        or not hasattr(st.session_state.CONN, "rest")
+        or st.session_state.CONN.rest is None
+        or not hasattr(st.session_state.CONN.rest, "token")
+        or st.session_state.CONN.rest.token is None
+    ):
+        error_msg = "❌ Not connected to Snowflake. Please connect first using the sidebar."
+        return {"request_id": None}, error_msg
 
-    # Content is a string with serialized JSON object
-    parsed_content = json.loads(resp["content"])
-
-    # Check if the response is successful
-    if resp["status"] < 400:
-        # Return the content of the response as a JSON object
-        return parsed_content, None
-    else:
-        # Craft readable error message
-        error_msg = f"""
+    try:
+        # Send a POST request to the Cortex Analyst API endpoint
+        resp = requests.post(
+            url=f"https://{HOST}{API_ENDPOINT}",
+            json=request_body,
+            headers={
+                "Authorization": f'Snowflake Token="{st.session_state.CONN.rest.token}"',
+                "Content-Type": "application/json",
+            },
+            timeout=API_TIMEOUT/1000,  # Convert milliseconds to seconds
+        )
+        request_id = resp.headers.get("X-Snowflake-Request-Id", "unknown")
+        
+        if resp.status_code < 400:
+            response_json = resp.json()
+            # Validate response structure
+            if "message" in response_json and "content" in response_json["message"]:
+                return {**response_json, "request_id": request_id}, None
+            else:
+                error_msg = "Received an invalid response format from the Analyst API."
+                return {"request_id": request_id}, error_msg
+        else:
+            # Craft readable error message for HTTP errors
+            try:
+                parsed_content = resp.json()
+                error_msg = f"""
 🚨 An Analyst API error has occurred 🚨
 
-* response code: `{resp['status']}`
-* request-id: `{parsed_content['request_id']}`
-* error code: `{parsed_content['error_code']}`
+* response code: `{resp.status_code}`
+* request-id: `{request_id}`
+* error code: `{parsed_content.get('error_code', 'N/A')}`
 
 Message:
 ```
-{parsed_content['message']}
+{parsed_content.get('message', 'No message provided')}
 ```
-        """
-        return parsed_content, error_msg
-
+                """
+            except:
+                error_msg = f"Failed request (id: {request_id}) with status {resp.status_code}: {resp.content}"
+            
+            return {"request_id": request_id}, error_msg
+            
+    except requests.exceptions.Timeout:
+        error_msg = f"Request timed out after {API_TIMEOUT/1000} seconds. Please try again."
+        return {"request_id": "timeout"}, error_msg
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Request error: {str(e)}"
+        return {"request_id": "error"}, error_msg
 
 def display_conversation():
     """
@@ -243,32 +349,60 @@ def display_conversation():
         with st.chat_message(role):
             display_message(content, idx)
 
-
 def display_message(content: List[Dict[str, str]], message_index: int):
     """
-    Display a single message content.
+    Display a single message content with various content types.
 
     Args:
         content (List[Dict[str, str]]): The message content.
-        message_index (int): The index of the message.
+        message_index (int): The index of the message for unique component keys.
     """
-    for item in content:
-        if item["type"] == "text":
-            st.markdown(item["text"])
-        elif item["type"] == "suggestions":
+    if not content:
+        st.warning("Empty message content")
+        return
+        
+    for item_index, item in enumerate(content):
+        if not isinstance(item, dict) or "type" not in item:
+            st.warning(f"Invalid message item format: {item}")
+            continue
+            
+        item_type = item.get("type")
+        
+        if item_type == "text":
+            if "text" in item:
+                st.markdown(item["text"])
+            else:
+                st.warning("Text item missing 'text' field")
+                
+        elif item_type == "suggestions":
             # Display suggestions as buttons
-            for suggestion_index, suggestion in enumerate(item["suggestions"]):
-                if st.button(
-                    suggestion, key=f"suggestion_{message_index}_{suggestion_index}"
-                ):
-                    st.session_state.active_suggestion = suggestion
-        elif item["type"] == "sql":
+            if "suggestions" in item and isinstance(item["suggestions"], list):
+                for suggestion_index, suggestion in enumerate(item["suggestions"]):
+                    if st.button(
+                        suggestion, key=f"suggestion_{message_index}_{item_index}_{suggestion_index}"
+                    ):
+                        st.session_state.active_suggestion = suggestion
+            else:
+                st.warning("Suggestions item missing valid 'suggestions' list")
+                
+        elif item_type == "sql":
             # Display the SQL query and results
-            display_sql_query(item["statement"], message_index)
+            if "statement" in item:
+                display_sql_query(item["statement"], message_index)
+            else:
+                st.warning("SQL item missing 'statement' field")
+                
+        elif item_type == "error":
+            # Display error messages with a distinctive style
+            if "text" in item:
+                st.error(item["text"])
+            else:
+                st.error("Unknown error occurred")
+                
         else:
-            # Handle other content types if necessary
-            pass
-
+            # Handle other content types
+            st.info(f"Unsupported content type: {item_type}")
+            st.json(item)
 
 @st.cache_data(show_spinner=False)
 def get_query_exec_result(query: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
@@ -276,14 +410,19 @@ def get_query_exec_result(query: str) -> Tuple[Optional[pd.DataFrame], Optional[
     Execute the SQL query and convert the results to a pandas DataFrame.
 
     Args:
-        query (str): The SQL query.
+        query (str): The SQL query to execute.
 
     Returns:
-        Tuple[Optional[pd.DataFrame], Optional[str]]: The query results and the error message.
+        Tuple[Optional[pd.DataFrame], Optional[str]]: The query results as DataFrame and any error message.
     """
-    global session
+    # Use session from session state if available, otherwise use global session
+    current_session = st.session_state.get('session') or session
+    
+    if current_session is None:
+        return None, "No active Snowflake session. Please connect to Snowflake first."
+        
     try:
-        df = session.sql(query).to_pandas()
+        df = current_session.sql(query).to_pandas()
         return df, None
     except SnowparkSQLException as e:
         return None, str(e)
@@ -291,16 +430,23 @@ def get_query_exec_result(query: str) -> Tuple[Optional[pd.DataFrame], Optional[
 
 def display_sql_query(sql: str, message_index: int):
     """
-    Executes the SQL query and displays the results in form of data frame and charts.
+    Executes the SQL query and displays the results in form of dataframe and charts.
 
     Args:
-        sql (str): The SQL query.
-        message_index (int): The index of the message.
+        sql (str): The SQL query to execute.
+        message_index (int): The index of the message for unique component keys.
     """
 
     # Display the SQL query
     with st.expander("SQL Query", expanded=False):
         st.code(sql, language="sql")
+
+    # Check if we have an active Snowflake session
+    current_session = st.session_state.get('session') or session
+    if current_session is None:
+        with st.expander("Results", expanded=True):
+            st.error("No active Snowflake session. Please connect to Snowflake using the sidebar first.")
+            return
 
     # Display the results of the SQL query
     with st.expander("Results", expanded=True):
@@ -313,20 +459,19 @@ def display_sql_query(sql: str, message_index: int):
             if df.empty:
                 st.write("Query returned no data")
                 return
-            sql_new = f'''SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2','Summarize results, Show trends & Itemize top insights & trends from the following json data in less than 150 words. Data: '  ||
-                                        (
-                                            SELECT array_agg( object_construct(*))::string as Output from
-                                                    ( {sql.replace(";", "")}  )
-                                        )
-                                        ) as Insights'''
-            
-# <---Remove this block to disable the additional Summarization feature OR use a better model than mistral-large2 to get more accurate results
-            
+            # Generate insights using Snowflake Cortex if the result set is small enough
             if len(df) <= 20:
+                sql_new = f'''SELECT SNOWFLAKE.CORTEX.COMPLETE(
+                    'mistral-large2',
+                    'Summarize results, Show trends & Itemize top insights & trends from the following json data in less than 150 words. Data: ' ||
+                    (
+                        SELECT array_agg(object_construct(*))::string as Output from
+                        ({sql.replace(";", "")})
+                    )
+                ) as Insights'''
+                
                 DataSummary = get_query_exec_result(sql_new)
                 st.markdown(str(DataSummary[0].iat[0, 0]))
-                
-            # <---
             
             # Show query results in two tabs
             data_tab, chart_tab = st.tabs(["Data 📄", "Chart 📈 "])
@@ -373,61 +518,13 @@ def display_charts_tab(df: pd.DataFrame, message_index: int) -> None:
 if __name__ == "__main__":
     main()
     st.markdown("---")
-    st.markdown("Developed by [John Park, Qlik Analytics Presales Architect](https://www.linkedin.com/in/jpark328/) | [Email](mailto:john.park@qlik.com) | [GitHub Repo](https://github.com/john-park-4519a41b/)")
+    st.markdown("Developed by [John Park, Qlik Analytics PreSales Architect](https://www.linkedin.com/in/jpark328/) | [Email](mailto:john.park@qlik.com) | [GitHub Repo](https://github.com/Parkman328/chatbot-demojrp/)")
     st.markdown(
-    "<hr style='margin-top:2em; margin-bottom:1em;'>"
-    "<div style='text-align:center; color:gray;'>" \
-    "Developed for Demo Purpose Not Production Use." \
-    "<br>" \
-    "© 2025 Qlik, Inc. All rights reserved."
-    "</div>",
-    unsafe_allow_html=True
-)
-
-
-#reset_session_state()
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-#openai_api_key = st.text_input("OpenAI API Key", type="password")
-#if not openai_api_key:
-#    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-#else:
-
-    # Create an OpenAI client.
- #   client = OpenAI(api_key=openai_api_key)
-
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-  #  if "messages" not in st.session_state:
-  #      st.session_state.messages = []
-
-    # Display the existing chat messages via `st.chat_message`.
-   # for message in st.session_state.messages:
-    #    with st.chat_message(message["role"]):
-     #       st.markdown(message["content"])
-
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    #if prompt := st.chat_input("What is up?"):
-
-        # Store and display the current prompt.
-     #   st.session_state.messages.append({"role": "user", "content": prompt})
-      #  with st.chat_message("user"):
-     #       st.markdown(prompt)
-
-        # Generate a response using the OpenAI API.
-       # stream = client.chat.completions.create(
-        #    model="gpt-3.5-turbo",
-           # messages=[
-            #    {"role": m["role"], "content": m["content"]}
-            #    for m in st.session_state.messages
-            #],
-            #stream=True,
-        #)
-
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        #with st.chat_message("assistant"):
-        #    response = st.write_stream(stream)
-        #st.session_state.messages.append({"role": "assistant", "content": response})
+        "<hr style='margin-top:2em; margin-bottom:1em;'>"
+        "<div style='text-align:center; color:gray;'>"
+        "Developed for Demo Purpose Not Production Use."
+        "<br>"
+        "© 2025 Qlik, Inc. All rights reserved."
+        "</div>",
+        unsafe_allow_html=True
+    )
