@@ -1,0 +1,18 @@
+{
+  "name": "snowflake-cortext-analyst",
+  "image": "<your-registry>/snowflake-cortext-analyst:latest",
+  "env": {
+    "SNOWFLAKE_ACCOUNT": "${SNOWFLAKE_ACCOUNT}",
+    "SNOWFLAKE_USER": "${SNOWFLAKE_USER}",
+    "SNOWFLAKE_PAT": "${SNOWFLAKE_PAT}",
+    "SNOWFLAKE_WAREHOUSE": "${SNOWFLAKE_WAREHOUSE}",
+    "SNOWFLAKE_DATABASE": "${SNOWFLAKE_DATABASE}",
+    "SNOWFLAKE_SCHEMA": "${SNOWFLAKE_SCHEMA}",
+    "DEBUG": "false"
+  },
+  "ports": [8500],
+  "resources": {
+    "cpu": "1",
+    "memory": "2Gi"
+  }
+}

@@ -42,39 +42,47 @@ def init_connection_params():
     if "snowflake_schema" not in st.session_state:
         st.session_state.snowflake_schema = ""
     
-    # Connection details - use st.secrets only in debug mode
-    if DEBUG_MODE and "connections" in st.secrets and "snowflake" in st.secrets["connections"]:
-        # Use secrets in debug mode
-        secrets = st.secrets["connections"]["snowflake"]
-        st.session_state.snowflake_account = secrets["ACCOUNT"]
-        st.session_state.snowflake_user = secrets["USER"]
-        st.session_state.snowflake_authenticator = 'snowflake'
-        st.session_state.snowflake_token = secrets["PAT"]
-        st.session_state.snowflake_warehouse = secrets["WAREHOUSE"]
-        st.session_state.snowflake_database = secrets["DATABASE"]
-        st.session_state.snowflake_schema = secrets["SCHEMA"]
-    else:
-        # Use environment variables if available
-        env_account = os.environ.get("SNOWFLAKE_ACCOUNT", "")
-        env_user = os.environ.get("SNOWFLAKE_USER", "")
-        env_token = os.environ.get("SNOWFLAKE_PAT", "")
-        env_warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "")
-        env_database = os.environ.get("SNOWFLAKE_DATABASE", "")
-        env_schema = os.environ.get("SNOWFLAKE_SCHEMA", "")
+    # First priority: Environment variables (for container deployment)
+    env_account = os.environ.get("SNOWFLAKE_ACCOUNT", "")
+    env_user = os.environ.get("SNOWFLAKE_USER", "")
+    env_token = os.environ.get("SNOWFLAKE_PAT", "")
+    env_warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "")
+    env_database = os.environ.get("SNOWFLAKE_DATABASE", "")
+    env_schema = os.environ.get("SNOWFLAKE_SCHEMA", "")
+    env_authenticator = os.environ.get("SNOWFLAKE_AUTHENTICATOR", "snowflake")
+    
+    # Update from environment variables if available
+    if env_account:
+        st.session_state.snowflake_account = env_account
+    if env_user:
+        st.session_state.snowflake_user = env_user
+    if env_token:
+        st.session_state.snowflake_token = env_token
+    if env_warehouse:
+        st.session_state.snowflake_warehouse = env_warehouse
+    if env_database:
+        st.session_state.snowflake_database = env_database
+    if env_schema:
+        st.session_state.snowflake_schema = env_schema
+    if env_authenticator:
+        st.session_state.snowflake_authenticator = env_authenticator
         
-        # Only update if environment variables are set
-        if env_account:
-            st.session_state.snowflake_account = env_account
-        if env_user:
-            st.session_state.snowflake_user = env_user
-        if env_token:
-            st.session_state.snowflake_token = env_token
-        if env_warehouse:
-            st.session_state.snowflake_warehouse = env_warehouse
-        if env_database:
-            st.session_state.snowflake_database = env_database
-        if env_schema:
-            st.session_state.snowflake_schema = env_schema
+    # Second priority: Streamlit secrets (for local development)
+    if DEBUG_MODE and "connections" in st.secrets and "snowflake" in st.secrets["connections"]:
+        # Only use secrets if values aren't already set by environment variables
+        secrets = st.secrets["connections"]["snowflake"]
+        if not st.session_state.snowflake_account and "ACCOUNT" in secrets:
+            st.session_state.snowflake_account = secrets["ACCOUNT"]
+        if not st.session_state.snowflake_user and "USER" in secrets:
+            st.session_state.snowflake_user = secrets["USER"]
+        if not st.session_state.snowflake_token and "PAT" in secrets:
+            st.session_state.snowflake_token = secrets["PAT"]
+        if not st.session_state.snowflake_warehouse and "WAREHOUSE" in secrets:
+            st.session_state.snowflake_warehouse = secrets["WAREHOUSE"]
+        if not st.session_state.snowflake_database and "DATABASE" in secrets:
+            st.session_state.snowflake_database = secrets["DATABASE"]
+        if not st.session_state.snowflake_schema and "SCHEMA" in secrets:
+            st.session_state.snowflake_schema = secrets["SCHEMA"]
 
 # List of available semantic model paths in the format: <DATABASE>.<SCHEMA>.<STAGE>/<FILE-NAME>
 # Each path points to a YAML file defining a semantic model
@@ -186,24 +194,58 @@ def show_header_and_sidebar():
         st.sidebar.title("1. Configuration")
         with st.sidebar.expander("Configurations", expanded=not DEBUG_MODE):
             st.markdown("## Snowflake Connection Details")
+            
+            # Define callback functions to handle input changes
+            def update_account():
+                st.session_state.snowflake_account = st.session_state.account_input
+                
+            def update_user():
+                st.session_state.snowflake_user = st.session_state.user_input
+                
+            def update_token():
+                st.session_state.snowflake_token = st.session_state.token_input
+                
+            def update_warehouse():
+                st.session_state.snowflake_warehouse = st.session_state.warehouse_input
+                
+            def update_database():
+                st.session_state.snowflake_database = st.session_state.database_input
+                
+            def update_schema():
+                st.session_state.snowflake_schema = st.session_state.schema_input
+            
             # Allow editing of fields when not in debug mode
             st.text_input("Account", value=st.session_state.snowflake_account, 
-                         disabled=DEBUG_MODE, key="snowflake_account")
+                         disabled=DEBUG_MODE, key="account_input", on_change=update_account)
             st.text_input("User", value=st.session_state.snowflake_user, 
-                         disabled=DEBUG_MODE, key="snowflake_user")
+                         disabled=DEBUG_MODE, key="user_input", on_change=update_user)
             st.text_input("Personal Access Token", value=st.session_state.snowflake_token, 
-                         type="password", disabled=DEBUG_MODE, key="snowflake_token")
+                         type="password", disabled=DEBUG_MODE, key="token_input", on_change=update_token)
             st.text_input("Warehouse", value=st.session_state.snowflake_warehouse, 
-                         disabled=DEBUG_MODE, key="snowflake_warehouse")
+                         disabled=DEBUG_MODE, key="warehouse_input", on_change=update_warehouse)
             st.text_input("Database", value=st.session_state.snowflake_database, 
-                         disabled=DEBUG_MODE, key="snowflake_database")
+                         disabled=DEBUG_MODE, key="database_input", on_change=update_database)
             st.text_input("Schema", value=st.session_state.snowflake_schema, 
-                         disabled=DEBUG_MODE, key="snowflake_schema")
+                         disabled=DEBUG_MODE, key="schema_input", on_change=update_schema)
             
         st.sidebar.title("2. Connect to Snowflake")
         with st.sidebar.expander("Connect", expanded=False):
             connect_button = st.button("Connect to Snowflake")
         if connect_button:
+            # Ensure session state is updated with the latest input values
+            if "account_input" in st.session_state:
+                st.session_state.snowflake_account = st.session_state.account_input
+            if "user_input" in st.session_state:
+                st.session_state.snowflake_user = st.session_state.user_input
+            if "token_input" in st.session_state:
+                st.session_state.snowflake_token = st.session_state.token_input
+            if "warehouse_input" in st.session_state:
+                st.session_state.snowflake_warehouse = st.session_state.warehouse_input
+            if "database_input" in st.session_state:
+                st.session_state.snowflake_database = st.session_state.database_input
+            if "schema_input" in st.session_state:
+                st.session_state.snowflake_schema = st.session_state.schema_input
+                
             # Get values from session state
             account = st.session_state.snowflake_account
             user = st.session_state.snowflake_user
