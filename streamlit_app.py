@@ -260,10 +260,11 @@ def show_header_and_sidebar():
             #st.markdown("Select the semantic model to use for the Analyst API.")
             #st.markdown("You can upload your own semantic model YAML files to the specified stage in Snowflake and add the path here.")
             #st.markdown("Make sure the semantic model is compatible with the Analyst API.")
-            st.selectbox("", AVAILABLE_SEMANTIC_MODELS_PATHS,
+            st.selectbox("Select Model", AVAILABLE_SEMANTIC_MODELS_PATHS,
                 format_func=lambda s: s.split("/")[-1],
                 key="selected_semantic_model_path",
                 on_change=reset_session_state,
+                label_visibility="collapsed"
             )
         st.sidebar.title("4. Clean Up Session")
         with st.sidebar.expander("Reset Session", expanded=False):
