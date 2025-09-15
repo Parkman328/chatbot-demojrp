@@ -75,7 +75,7 @@ SNOWFLAKE_AUTHENTICATOR=snowflake # Authentication method (default: snowflake)
        "SNOWFLAKE_DATABASE": "${SNOWFLAKE_DATABASE}",
        "SNOWFLAKE_SCHEMA": "${SNOWFLAKE_SCHEMA}"
      },
-     "ports": [8501],
+     "ports": [8500],
      "resources": {
        "cpu": "1",
        "memory": "2Gi"

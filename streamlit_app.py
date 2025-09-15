@@ -42,6 +42,45 @@ def init_connection_params():
     if "snowflake_schema" not in st.session_state:
         st.session_state.snowflake_schema = ""
     
+    # Check if input values exist in session state (these come from input boxes)
+    has_input_values = (
+        "account_input" in st.session_state or
+        "user_input" in st.session_state or
+        "token_input" in st.session_state or
+        "warehouse_input" in st.session_state or
+        "database_input" in st.session_state or
+        "schema_input" in st.session_state
+    )
+    
+    # If we have input values, they take precedence over everything else
+    if has_input_values:
+        print("\n==== Using Input Box Values ====")
+        if "account_input" in st.session_state:
+            st.session_state.snowflake_account = st.session_state.account_input
+            print(f"Using input box account: {st.session_state.account_input}")
+            
+        if "user_input" in st.session_state:
+            st.session_state.snowflake_user = st.session_state.user_input
+            print(f"Using input box user: {st.session_state.user_input}")
+            
+        if "token_input" in st.session_state:
+            st.session_state.snowflake_token = st.session_state.token_input
+            print(f"Using input box token (length: {len(st.session_state.token_input) if st.session_state.token_input else 0})")
+            
+        if "warehouse_input" in st.session_state:
+            st.session_state.snowflake_warehouse = st.session_state.warehouse_input
+            print(f"Using input box warehouse: {st.session_state.warehouse_input}")
+            
+        if "database_input" in st.session_state:
+            st.session_state.snowflake_database = st.session_state.database_input
+            print(f"Using input box database: {st.session_state.database_input}")
+            
+        if "schema_input" in st.session_state:
+            st.session_state.snowflake_schema = st.session_state.schema_input
+            print(f"Using input box schema: {st.session_state.schema_input}")
+        return
+    
+    # Only use environment variables for initial values if no input box values exist
     # First priority: Environment variables (for container deployment)
     env_account = os.environ.get("SNOWFLAKE_ACCOUNT", "")
     env_user = os.environ.get("SNOWFLAKE_USER", "")
@@ -51,21 +90,49 @@ def init_connection_params():
     env_schema = os.environ.get("SNOWFLAKE_SCHEMA", "")
     env_authenticator = os.environ.get("SNOWFLAKE_AUTHENTICATOR", "snowflake")
     
-    # Update from environment variables if available
-    if env_account:
-        st.session_state.snowflake_account = env_account
-    if env_user:
-        st.session_state.snowflake_user = env_user
-    if env_token:
-        st.session_state.snowflake_token = env_token
-    if env_warehouse:
-        st.session_state.snowflake_warehouse = env_warehouse
-    if env_database:
-        st.session_state.snowflake_database = env_database
-    if env_schema:
-        st.session_state.snowflake_schema = env_schema
-    if env_authenticator:
-        st.session_state.snowflake_authenticator = env_authenticator
+    # Check if we're running in Docker
+    running_in_docker = "SNOWFLAKE_ACCOUNT" in os.environ
+    if running_in_docker:
+        print("\n==== Docker Environment Detected (Initial Values Only) ====")
+        print(f"Docker env account: {env_account}")
+        print(f"Docker env user: {env_user}")
+        print(f"Docker env token length: {len(env_token) if env_token else 0}")
+        
+        # Only set initial values from environment if session state is empty
+        if not st.session_state.snowflake_account and env_account and env_account != "your-account":
+            st.session_state.snowflake_account = env_account
+            print(f"Setting initial account to: {env_account}")
+            
+        if not st.session_state.snowflake_user and env_user and env_user != "your-user":
+            st.session_state.snowflake_user = env_user
+            print(f"Setting initial user to: {env_user}")
+            
+        if not st.session_state.snowflake_token and env_token and env_token != "your-token":
+            st.session_state.snowflake_token = env_token
+            print(f"Setting initial token (length: {len(env_token)})")
+            
+        if not st.session_state.snowflake_warehouse and env_warehouse and env_warehouse != "your-warehouse":
+            st.session_state.snowflake_warehouse = env_warehouse
+            print(f"Setting initial warehouse to: {env_warehouse}")
+            
+        if not st.session_state.snowflake_database and env_database and env_database != "your-database":
+            st.session_state.snowflake_database = env_database
+            print(f"Setting initial database to: {env_database}")
+            
+        if not st.session_state.snowflake_schema and env_schema and env_schema != "your-schema":
+            st.session_state.snowflake_schema = env_schema
+            print(f"Setting initial schema to: {env_schema}")
+            
+        print("NOTE: These values will be overridden by input box values when provided.")
+    
+    # Print current session state values
+    print("\n==== Current Session State Values ====")
+    print(f"Session state account: {st.session_state.snowflake_account}")
+    print(f"Session state user: {st.session_state.snowflake_user}")
+    print(f"Session state token length: {len(st.session_state.snowflake_token) if st.session_state.snowflake_token else 0}")
+    print(f"Session state warehouse: {st.session_state.snowflake_warehouse}")
+    print(f"Session state database: {st.session_state.snowflake_database}")
+    print(f"Session state schema: {st.session_state.snowflake_schema}")
         
     # Second priority: Streamlit secrets (for local development)
     if DEBUG_MODE and "connections" in st.secrets and "snowflake" in st.secrets["connections"]:
@@ -103,12 +170,9 @@ def main():
     # Initialize session state
     if "messages" not in st.session_state:
         reset_session_state()
-    
     # Initialize connection parameters
     init_connection_params()
-    
     show_header_and_sidebar()
-    
     # Check if we have an active Snowflake connection
     has_connection = (
         "CONN" in st.session_state
@@ -120,9 +184,15 @@ def main():
     )
     
     # Only initiate the first question if we have a connection and no messages yet
-    if len(st.session_state.messages) == 0 and has_connection:
+    # and we didn't just reset the chat history
+    just_reset = st.session_state.get('just_reset', False)
+    
+    if len(st.session_state.messages) == 0 and has_connection and not just_reset:
         process_user_input("What questions can I ask?")
     elif len(st.session_state.messages) == 0 and not has_connection:
+        # Clear the reset flag if it exists
+        if just_reset:
+            st.session_state.just_reset = False
         # Add a welcome message instructing to connect first
         welcome_message = {
             "role": "analyst",
@@ -149,6 +219,9 @@ def reset_session_state():
     # Reset conversation state
     st.session_state.messages = []  # List to store conversation messages
     st.session_state.active_suggestion = None  # Currently selected suggestion
+    
+    # Add a flag to prevent automatic question
+    st.session_state.just_reset = True
     
     # Restore Snowflake connection if it existed
     if snowflake_conn is not None:
@@ -198,21 +271,22 @@ def show_header_and_sidebar():
             # Define callback functions to handle input changes
             def update_account():
                 st.session_state.snowflake_account = st.session_state.account_input
-                
+                print(f"Updated account: {st.session_state.snowflake_account}")
             def update_user():
                 st.session_state.snowflake_user = st.session_state.user_input
-                
+                print(f"Updated user: {st.session_state.snowflake_user}")
             def update_token():
                 st.session_state.snowflake_token = st.session_state.token_input
-                
+                print(f"Updated token: {st.session_state.snowflake_token}")
             def update_warehouse():
                 st.session_state.snowflake_warehouse = st.session_state.warehouse_input
-                
+                print(f"Updated warehouse: {st.session_state.snowflake_warehouse}")
             def update_database():
                 st.session_state.snowflake_database = st.session_state.database_input
-                
+                print(f"Updated database: {st.session_state.snowflake_database}")
             def update_schema():
                 st.session_state.snowflake_schema = st.session_state.schema_input
+                print(f"Updated schema: {st.session_state.snowflake_schema}")
             
             # Allow editing of fields when not in debug mode
             st.text_input("Account", value=st.session_state.snowflake_account, 
@@ -246,54 +320,52 @@ def show_header_and_sidebar():
             if "schema_input" in st.session_state:
                 st.session_state.snowflake_schema = st.session_state.schema_input
                 
-            # Get values from session state
-            account = st.session_state.snowflake_account
-            user = st.session_state.snowflake_user
-            token = st.session_state.snowflake_token
-            warehouse = st.session_state.snowflake_warehouse
-            database = st.session_state.snowflake_database
-            schema = st.session_state.snowflake_schema
-                
-            if not token:
+            #print(f"Account: {st.session_state.snowflake_account}")
+            #print(f"User: {st.session_state.snowflake_user}")
+            #print(f"Token: {st.session_state.snowflake_token}")
+            #print(f"Warehouse: {st.session_state.snowflake_warehouse}")
+            #print(f"Database: {st.session_state.snowflake_database}")
+            #print(f"Schema: {st.session_state.snowflake_schema}")
+            
+            if not st.session_state.snowflake_token:
                 st.error("Please provide a valid Personal Access Token.")
-            elif not account:
+            elif not st.session_state.snowflake_account:
                 st.error("Please provide a valid Account.")
-            elif not user:
+            elif not st.session_state.snowflake_user:
                 st.error("Please provide a valid User.")
             else:
                 try:
                     conn = snowflake.connector.connect(
-                        account=account,
-                        user=user,
+                        account=st.session_state.snowflake_account,
+                        user=st.session_state.snowflake_user,
                         authenticator='snowflake',
-                        password=token,
-                        warehouse=warehouse,
-                        database=database,
-                        schema=schema
+                        password=st.session_state.snowflake_token,
+                        warehouse=st.session_state.snowflake_warehouse,
+                        database=st.session_state.snowflake_database,
+                        schema=st.session_state.snowflake_schema
                     )
                     st.session_state.CONN = conn
-                    st.success(f"Connection successful to {account}!")
+                    st.success(f"Connection successful to {st.session_state.snowflake_account}!")
                     connection_parameters = {
-                        "account": account,
-                        "user": user,
+                        "account": st.session_state.snowflake_account,
+                        "user": st.session_state.snowflake_user,
                         "authenticator": 'snowflake',
-                        "password": token,
-                        "warehouse": warehouse,
-                        "database": database,
-                        "schema": schema,
+                        "password": st.session_state.snowflake_token,
+                        "warehouse": st.session_state.snowflake_warehouse,
+                        "database": st.session_state.snowflake_database,
+                        "schema": st.session_state.snowflake_schema,
                     }
                     # Initialize the global session variable
                     global session
                     session = Session.builder.configs(connection_parameters).create()
                     st.session_state.session = session  # Also store in session state for persistence
-                    
-                    cur = conn.cursor()
+                    #cur = conn.cursor()
                     #cur.execute("SELECT CURRENT_VERSION(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()")
                     #result = cur.fetchall()
                     #st.write("Connection Info:")
                     #for row in result:
                         #st.write(row)
-                    cur.close()
+                    #cur.close()
                 except DatabaseError as e:
                     st.error(f"Failed to connect: {e}")
                     _, btn_container, _ = st.columns([2, 6, 2])
@@ -321,6 +393,7 @@ def handle_user_inputs():
     """
     # Handle chat input
     user_input = st.chat_input("What is your question?")
+    print(f"User input: {user_input}")
     if user_input:
         process_user_input(user_input)
     # Handle suggested question click
@@ -348,6 +421,7 @@ def process_user_input(prompt: str):
         "role": "user",
         "content": [{"type": "text", "text": prompt}],
     }
+    print(f"New user message: {new_user_message}")
     st.session_state.messages.append(new_user_message)
     with st.chat_message("user"):
         user_msg_index = len(st.session_state.messages) - 1
@@ -402,75 +476,144 @@ def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
     Returns:
         Tuple[Dict, Optional[str]]: The response from the Cortex Analyst API and any error message.
     """
-    account = st.session_state.snowflake_account
-    HOST = account + ".snowflakecomputing.com"
-    print(f"Using semantic model: {st.session_state.selected_semantic_model_path}")
+    print("Inside get analyst response")
     
-    # Prepare the request body with the user's prompt
+    # Get values from input boxes or session state
+    account = st.session_state.account_input if "account_input" in st.session_state else st.session_state.snowflake_account
+    user = st.session_state.user_input if "user_input" in st.session_state else st.session_state.snowflake_user
+    token = st.session_state.token_input if "token_input" in st.session_state else st.session_state.snowflake_token
+    warehouse = st.session_state.warehouse_input if "warehouse_input" in st.session_state else st.session_state.snowflake_warehouse
+    database = st.session_state.database_input if "database_input" in st.session_state else st.session_state.snowflake_database
+    schema = st.session_state.schema_input if "schema_input" in st.session_state else st.session_state.snowflake_schema
+    
+    # For minimal debugging
+    print(f"Schema: {schema}")
+    
+    # Set up API endpoint
+    HOST = account + ".snowflakecomputing.com"
+    api_url = f"https://{HOST}{API_ENDPOINT}"
+    
+    # Prepare the request body
     request_body = {
         "messages": messages,
         "semantic_model_file": f"@{st.session_state.selected_semantic_model_path}",
     }
-
-    # Check if connection and token are available
-    if (
-        "CONN" not in st.session_state
-        or st.session_state.CONN is None
-        or not hasattr(st.session_state.CONN, "rest")
-        or st.session_state.CONN.rest is None
-        or not hasattr(st.session_state.CONN.rest, "token")
-        or st.session_state.CONN.rest.token is None
-    ):
-        error_msg = "❌ Not connected to Snowflake. Please connect first using the sidebar."
-        return {"request_id": None}, error_msg
+    
+    # Debug session state
+    print("\n==== Session state debug ====")
+    print(f"CONN in session state: {'CONN' in st.session_state}")
+    if 'CONN' in st.session_state:
+        print(f"CONN is None: {st.session_state.CONN is None}")
+        if st.session_state.CONN is not None:
+            print(f"Has rest attribute: {hasattr(st.session_state.CONN, 'rest')}")
+            if hasattr(st.session_state.CONN, 'rest'):
+                print(f"rest is None: {st.session_state.CONN.rest is None}")
+                if st.session_state.CONN.rest is not None:
+                    print(f"Has token attribute: {hasattr(st.session_state.CONN.rest, 'token')}")
+                    if hasattr(st.session_state.CONN.rest, 'token'):
+                        print(f"Token is None: {st.session_state.CONN.rest.token is None}")
+                        print(f"Token length: {len(st.session_state.CONN.rest.token) if st.session_state.CONN.rest.token else 0}")
+    print("==== End session state debug ====")
 
     try:
+        print("\n==== Making API request ====")
+        
+        # Determine which token to use for the API request
+        token_to_use = None
+        
+        # First try to get from session state CONN object
+        if ("CONN" in st.session_state and 
+            st.session_state.CONN is not None and 
+            hasattr(st.session_state.CONN, "rest") and 
+            st.session_state.CONN.rest is not None and 
+            hasattr(st.session_state.CONN.rest, "token") and 
+            st.session_state.CONN.rest.token is not None):
+            token_to_use = st.session_state.CONN.rest.token
+            print("Using token from session state (CONN)")
+        
+        # If not in CONN, use the token we got earlier
+        if token_to_use is None:
+            token_to_use = token
+            print("Using token from function parameters")
+        
+        # Prepare headers with token
+        headers = {
+            "Authorization": f'Snowflake Token="{token_to_use}"',
+            "Content-Type": "application/json",
+        }
+        
         # Send a POST request to the Cortex Analyst API endpoint
         resp = requests.post(
-            url=f"https://{HOST}{API_ENDPOINT}",
+            url=api_url,
             json=request_body,
-            headers={
-                "Authorization": f'Snowflake Token="{st.session_state.CONN.rest.token}"',
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             timeout=API_TIMEOUT/1000,  # Convert milliseconds to seconds
         )
+        
+        print(f"\n==== Response received ====")
+        print(f"Status code: {resp.status_code}")
         request_id = resp.headers.get("X-Snowflake-Request-Id", "unknown")
+        print(f"Request ID: {request_id}")
+        print(f"Response headers: {resp.headers}")
         
         if resp.status_code < 400:
+            print("Success response (status < 400)")
             response_json = resp.json()
+            print(f"Response JSON: {response_json}")
+            
             # Validate response structure
             if "message" in response_json and "content" in response_json["message"]:
+                print("Valid response structure found")
                 return {**response_json, "request_id": request_id}, None
             else:
+                print("Invalid response structure")
                 error_msg = "Received an invalid response format from the Analyst API."
                 return {"request_id": request_id}, error_msg
         else:
+            print(f"Error response: {resp.status_code}")
             # Craft readable error message for HTTP errors
             try:
                 parsed_content = resp.json()
+                print(f"Error content: {parsed_content}")
                 error_msg = f"""
-🚨 An Analyst API error has occurred 🚨
+                🚨 An Analyst API error has occurred 🚨
 
-* response code: `{resp.status_code}`
-* request-id: `{request_id}`
-* error code: `{parsed_content.get('error_code', 'N/A')}`
+                * response code: `{resp.status_code}`
+                * request-id: `{request_id}`
+                * error code: `{parsed_content.get('error_code', 'N/A')}`
 
-Message:
-```
-{parsed_content.get('message', 'No message provided')}
-```
+                Message:
+                ```
+                {parsed_content.get('message', 'No message provided')}
+                ```
                 """
-            except:
+            except Exception as json_err:
+                print(f"Failed to parse error response as JSON: {json_err}")
+                print(f"Raw response content: {resp.content}")
                 error_msg = f"Failed request (id: {request_id}) with status {resp.status_code}: {resp.content}"
             
             return {"request_id": request_id}, error_msg
             
     except requests.exceptions.Timeout:
+        print(f"\n==== Timeout Exception ====")
+        print(f"Request timed out after {API_TIMEOUT/1000} seconds")
         error_msg = f"Request timed out after {API_TIMEOUT/1000} seconds. Please try again."
         return {"request_id": "timeout"}, error_msg
     except requests.exceptions.RequestException as e:
+        print(f"\n==== Request Exception ====")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+        print(f"Details: {repr(e)}")
         error_msg = f"Request error: {str(e)}"
+        return {"request_id": "error"}, error_msg
+    except Exception as e:
+        print(f"\n==== Unexpected Exception ====")
+        print(f"Type: {type(e).__name__}")
+        print(f"Message: {str(e)}")
+        print(f"Details: {repr(e)}")
+        import traceback
+        traceback.print_exc()
+        error_msg = f"Unexpected error: {str(e)}"
         return {"request_id": "error"}, error_msg
 
 def display_conversation():
@@ -562,10 +705,47 @@ def get_query_exec_result(query: str) -> Tuple[Optional[pd.DataFrame], Optional[
         return None, "No active Snowflake session. Please connect to Snowflake first."
         
     try:
-        df = current_session.sql(query).to_pandas()
+        # First try to execute with default settings
+        try:
+            df = current_session.sql(query).to_pandas()
+        except Exception as e:
+            if "Cannot convert non-finite values (NA or inf) to integer" in str(e):
+                # Try again with pandas options to handle NA values
+                # Create a temporary table with the results
+                temp_table_name = f"TEMP_QUERY_RESULT_{int(time.time())}"
+                current_session.sql(f"CREATE TEMPORARY TABLE {temp_table_name} AS {query}").collect()
+                
+                # Fetch the schema to determine column types
+                schema_query = f"DESCRIBE TABLE {temp_table_name}"
+                schema_df = current_session.sql(schema_query).to_pandas()
+                
+                # Construct a query that casts problematic columns to appropriate types
+                columns = []
+                for _, row in schema_df.iterrows():
+                    col_name = row['name']
+                    col_type = row['type']
+                    
+                    # For numeric columns that might have NULLs, use COALESCE or explicit casting
+                    if 'INT' in col_type.upper():
+                        columns.append(f"COALESCE({col_name}, 0) AS {col_name}")
+                    elif 'FLOAT' in col_type.upper() or 'DOUBLE' in col_type.upper() or 'DECIMAL' in col_type.upper() or 'NUMERIC' in col_type.upper():
+                        columns.append(f"COALESCE({col_name}, 0.0) AS {col_name}")
+                    else:
+                        columns.append(col_name)
+                
+                # Execute the modified query
+                safe_query = f"SELECT {', '.join(columns)} FROM {temp_table_name}"
+                df = current_session.sql(safe_query).to_pandas()
+                
+                # Clean up the temporary table
+                current_session.sql(f"DROP TABLE IF EXISTS {temp_table_name}").collect()
+            else:
+                # If it's a different error, re-raise it
+                raise
+        
         return df, None
-    except SnowparkSQLException as e:
-        return None, str(e)
+    except Exception as e:
+        return None, f"Error executing query: {str(e)}"
 
 
 def display_sql_query(sql: str, message_index: int):

@@ -1,17 +1,14 @@
 [app]
 app_intro = """
 This app allows you to access, evaluate Snowflake Cortext Analyts and optimize semantic model in just a few clicks.
-All you have to do is to upload a time series dataset, and follow the guidelines in the sidebar to:
-* __Prepare data__: Filter, aggregate, resample and/or clean your dataset.
-* __Choose Semantic Model__: Default parameters are available but you can tune them.
-Look at the tooltips to understand how each parameter is impacting forecasts.
-* __Select evaluation method__: Define the evaluation process, the metrics and the granularity to
-assess your model performance.
-* __Make a forecast__: Make a forecast on future dates that are not included in your dataset,
-with the model previously trained. \n
+All you have to do is to Configuration(Step 1) and Connections are verified(Step 2):    
+* __Configure to Snowflake__: Configure you Connections to Snowflake currently we only accept snowflake authentication or PAT(Personal Access Token).
+* __Connect to Snowflake__: Using the Configuration(Step 1) to connect to Snowflake and test the connection.
+* __Select Semantic Model____: In the future this option will allow you to input the path of Semantic Model Currently configuration has to be done in Back End.
+* __Reset Session__: Currenly only Clear Chat History is implemented.
 
+Please note this alpha application to demonstrate Qlik Cloud and Snowflake integration.
 
-Once you are satisfied, click on "save experiment" to download all plots and data locally.
 """
 
 [tooltips]
