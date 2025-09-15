@@ -20,16 +20,61 @@ from snowflake.snowpark.exceptions import SnowparkSQLException
 # Initialize session as None at the global scope
 session = None
 
-secrets = st.secrets["connections"]["snowflake"]
+# Check if we're in debug mode
+# In development, set DEBUG=true in environment variables
+DEBUG_MODE = os.environ.get("DEBUG", "false").lower() == "true"
 
-# Inputs for connection details (can also use st.secrets)
-account = secrets["ACCOUNT"]
-user = secrets["USER"]
-authenticator = 'snowflake'
-token = secrets["PAT"]
-warehouse = secrets["WAREHOUSE"]
-database = secrets["DATABASE"]
-schema = secrets["SCHEMA"]
+# Initialize connection parameters in session state if they don't exist
+def init_connection_params():
+    # Initialize connection parameters with default values
+    if "snowflake_account" not in st.session_state:
+        st.session_state.snowflake_account = ""
+    if "snowflake_user" not in st.session_state:
+        st.session_state.snowflake_user = ""
+    if "snowflake_authenticator" not in st.session_state:
+        st.session_state.snowflake_authenticator = 'snowflake'
+    if "snowflake_token" not in st.session_state:
+        st.session_state.snowflake_token = ""
+    if "snowflake_warehouse" not in st.session_state:
+        st.session_state.snowflake_warehouse = ""
+    if "snowflake_database" not in st.session_state:
+        st.session_state.snowflake_database = ""
+    if "snowflake_schema" not in st.session_state:
+        st.session_state.snowflake_schema = ""
+    
+    # Connection details - use st.secrets only in debug mode
+    if DEBUG_MODE and "connections" in st.secrets and "snowflake" in st.secrets["connections"]:
+        # Use secrets in debug mode
+        secrets = st.secrets["connections"]["snowflake"]
+        st.session_state.snowflake_account = secrets["ACCOUNT"]
+        st.session_state.snowflake_user = secrets["USER"]
+        st.session_state.snowflake_authenticator = 'snowflake'
+        st.session_state.snowflake_token = secrets["PAT"]
+        st.session_state.snowflake_warehouse = secrets["WAREHOUSE"]
+        st.session_state.snowflake_database = secrets["DATABASE"]
+        st.session_state.snowflake_schema = secrets["SCHEMA"]
+    else:
+        # Use environment variables if available
+        env_account = os.environ.get("SNOWFLAKE_ACCOUNT", "")
+        env_user = os.environ.get("SNOWFLAKE_USER", "")
+        env_token = os.environ.get("SNOWFLAKE_PAT", "")
+        env_warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "")
+        env_database = os.environ.get("SNOWFLAKE_DATABASE", "")
+        env_schema = os.environ.get("SNOWFLAKE_SCHEMA", "")
+        
+        # Only update if environment variables are set
+        if env_account:
+            st.session_state.snowflake_account = env_account
+        if env_user:
+            st.session_state.snowflake_user = env_user
+        if env_token:
+            st.session_state.snowflake_token = env_token
+        if env_warehouse:
+            st.session_state.snowflake_warehouse = env_warehouse
+        if env_database:
+            st.session_state.snowflake_database = env_database
+        if env_schema:
+            st.session_state.snowflake_schema = env_schema
 
 # List of available semantic model paths in the format: <DATABASE>.<SCHEMA>.<STAGE>/<FILE-NAME>
 # Each path points to a YAML file defining a semantic model
@@ -50,9 +95,37 @@ def main():
     # Initialize session state
     if "messages" not in st.session_state:
         reset_session_state()
+    
+    # Initialize connection parameters
+    init_connection_params()
+    
     show_header_and_sidebar()
-    if len(st.session_state.messages) == 0:
+    
+    # Check if we have an active Snowflake connection
+    has_connection = (
+        "CONN" in st.session_state
+        and st.session_state.CONN is not None
+        and hasattr(st.session_state.CONN, "rest")
+        and st.session_state.CONN.rest is not None
+        and hasattr(st.session_state.CONN.rest, "token")
+        and st.session_state.CONN.rest.token is not None
+    )
+    
+    # Only initiate the first question if we have a connection and no messages yet
+    if len(st.session_state.messages) == 0 and has_connection:
         process_user_input("What questions can I ask?")
+    elif len(st.session_state.messages) == 0 and not has_connection:
+        # Add a welcome message instructing to connect first
+        welcome_message = {
+            "role": "analyst",
+            "content": [{
+                "type": "text", 
+                "text": "👋 Welcome to Snowflake Cortext Analyst for Qlik Cloud! Please connect to Snowflake using the sidebar before asking questions."
+            }],
+            "request_id": "welcome"
+        }
+        st.session_state.messages.append(welcome_message)
+    
     display_conversation()
     handle_user_inputs()
     handle_error_notifications()
@@ -111,21 +184,40 @@ def show_header_and_sidebar():
             st.markdown(f"[Article]({readme['links']['article']})")
         st.divider()
         st.sidebar.title("1. Configuration")
-        with st.sidebar.expander("Configurations", expanded=False):
+        with st.sidebar.expander("Configurations", expanded=not DEBUG_MODE):
             st.markdown("## Snowflake Connection Details")
-            st.text_input("Account", value=account, disabled=True)
-            st.text_input("User", value=user, disabled=True)
-            st.text_input("Personal Access Token", value=token, type="password", disabled=True)
-            st.text_input("Warehouse", value=warehouse, disabled=True)
-            st.text_input("Database", value=database, disabled=True)
-            st.text_input("Schema", value=schema, disabled=True)
+            # Allow editing of fields when not in debug mode
+            st.text_input("Account", value=st.session_state.snowflake_account, 
+                         disabled=DEBUG_MODE, key="snowflake_account")
+            st.text_input("User", value=st.session_state.snowflake_user, 
+                         disabled=DEBUG_MODE, key="snowflake_user")
+            st.text_input("Personal Access Token", value=st.session_state.snowflake_token, 
+                         type="password", disabled=DEBUG_MODE, key="snowflake_token")
+            st.text_input("Warehouse", value=st.session_state.snowflake_warehouse, 
+                         disabled=DEBUG_MODE, key="snowflake_warehouse")
+            st.text_input("Database", value=st.session_state.snowflake_database, 
+                         disabled=DEBUG_MODE, key="snowflake_database")
+            st.text_input("Schema", value=st.session_state.snowflake_schema, 
+                         disabled=DEBUG_MODE, key="snowflake_schema")
             
         st.sidebar.title("2. Connect to Snowflake")
         with st.sidebar.expander("Connect", expanded=False):
             connect_button = st.button("Connect to Snowflake")
         if connect_button:
+            # Get values from session state
+            account = st.session_state.snowflake_account
+            user = st.session_state.snowflake_user
+            token = st.session_state.snowflake_token
+            warehouse = st.session_state.snowflake_warehouse
+            database = st.session_state.snowflake_database
+            schema = st.session_state.snowflake_schema
+                
             if not token:
                 st.error("Please provide a valid Personal Access Token.")
+            elif not account:
+                st.error("Please provide a valid Account.")
+            elif not user:
+                st.error("Please provide a valid User.")
             else:
                 try:
                     conn = snowflake.connector.connect(
@@ -154,27 +246,25 @@ def show_header_and_sidebar():
                     st.session_state.session = session  # Also store in session state for persistence
                     
                     cur = conn.cursor()
-                    cur.execute("SELECT CURRENT_VERSION(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()")
-                    result = cur.fetchall()
-                    st.write("Connection Info:")
-                    for row in result:
-                        st.write(row)
+                    #cur.execute("SELECT CURRENT_VERSION(), CURRENT_WAREHOUSE(), CURRENT_DATABASE(), CURRENT_SCHEMA()")
+                    #result = cur.fetchall()
+                    #st.write("Connection Info:")
+                    #for row in result:
+                        #st.write(row)
                     cur.close()
                 except DatabaseError as e:
                     st.error(f"Failed to connect: {e}")
                     _, btn_container, _ = st.columns([2, 6, 2])
         st.sidebar.title("3. Semantic Model")
         with st.sidebar.expander("Select Semantic Model", expanded=False):
-            st.markdown("Select the semantic model to use for the Analyst API.")
-            st.markdown("You can upload your own semantic model YAML files to the specified stage in Snowflake and add the path here.")
-            st.markdown("Make sure the semantic model is compatible with the Analyst API.")
-            st.selectbox(   
-            "Selected semantic model:",
-            AVAILABLE_SEMANTIC_MODELS_PATHS,
-            format_func=lambda s: s.split("/")[-1],
-            key="selected_semantic_model_path",
-            on_change=reset_session_state,
-        )
+            #st.markdown("Select the semantic model to use for the Analyst API.")
+            #st.markdown("You can upload your own semantic model YAML files to the specified stage in Snowflake and add the path here.")
+            #st.markdown("Make sure the semantic model is compatible with the Analyst API.")
+            st.selectbox("", AVAILABLE_SEMANTIC_MODELS_PATHS,
+                format_func=lambda s: s.split("/")[-1],
+                key="selected_semantic_model_path",
+                on_change=reset_session_state,
+            )
         st.sidebar.title("4. Clean Up Session")
         with st.sidebar.expander("Reset Session", expanded=False):
             if st.button("Clear Chat History", use_container_width=True):
@@ -269,6 +359,7 @@ def get_analyst_response(messages: List[Dict]) -> Tuple[Dict, Optional[str]]:
     Returns:
         Tuple[Dict, Optional[str]]: The response from the Cortex Analyst API and any error message.
     """
+    account = st.session_state.snowflake_account
     HOST = account + ".snowflakecomputing.com"
     print(f"Using semantic model: {st.session_state.selected_semantic_model_path}")
     
@@ -346,8 +437,14 @@ def display_conversation():
     for idx, message in enumerate(st.session_state.messages):
         role = message["role"]
         content = message["content"]
-        with st.chat_message(role):
-            display_message(content, idx)
+        
+        # Use snowflake emoji as avatar for analyst role
+        if role == "analyst":
+            with st.chat_message(role, avatar="❄️"):
+                display_message(content, idx)
+        else:
+            with st.chat_message(role):
+                display_message(content, idx)
 
 def display_message(content: List[Dict[str, str]], message_index: int):
     """
