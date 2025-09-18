@@ -6,12 +6,15 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create .streamlit directory and add configuration
+RUN mkdir -p .streamlit
+RUN echo '[server]\nheadless = true\nenableCORS = false\nenableXsrfProtection = false' > .streamlit/config.toml
+
 # Copy the rest of the application
 COPY . .
 
 # Railway specific configuration
 # Railway automatically assigns a PORT environment variable
-# We don't need to explicitly EXPOSE the port for Railway
 ENV DEBUG=false
 
 # Command to run the application
