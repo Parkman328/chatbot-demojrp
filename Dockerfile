@@ -10,12 +10,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port Streamlit will run on
-EXPOSE 8500
+#EXPOSE 8500
 
 # Set environment variables
 ENV DEBUG=false
-ENV STREAMLIT_SERVER_PORT=8500
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
-
+#ENV STREAMLIT_SERVER_PORT=8500
+#ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
+EXPOSE 8000
 # Command to run the application
-CMD ["streamlit", "run", "streamlit_app.py"]
+CMD ["sh", "-c", "streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0"]
