@@ -16,6 +16,6 @@ COPY . .
 ENV DEBUG=false
 #ENV STREAMLIT_SERVER_PORT=8500
 #ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
-EXPOSE 8000
+EXPOSE 8500
 # Command to run the application
 CMD ["sh", "-c", "streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0"]
