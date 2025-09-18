@@ -9,13 +9,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Expose the port Streamlit will run on
-#EXPOSE 8500
-
-# Set environment variables
+# Railway specific configuration
+# Railway automatically assigns a PORT environment variable
+# We don't need to explicitly EXPOSE the port for Railway
 ENV DEBUG=false
-#ENV STREAMLIT_SERVER_PORT=8500
-#ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
-EXPOSE 8500
+
 # Command to run the application
-CMD ["sh", "-c", "streamlit run streamlit_app.py --server.port=$PORT --server.address=0.0.0.0"]
+# Use $PORT from Railway or default to 8080 if not provided
+CMD ["sh", "-c", "streamlit run streamlit_app.py --server.port=${PORT:-8080} --server.address=0.0.0.0"]
